@@ -1,6 +1,6 @@
-import type { Contact, Message, WebSocketMessage } from "../types/chat"
+import type { Contact, Message, WebSocketMessage, RealWebSocketMessage, WebSocketConfig } from "../types/chat"
 
-export class WebSocketMock {
+export class WebSocketService {
   private listeners: Map<string, Function[]> = new Map()
   private isConnected = false
   private reconnectAttempts = 0
@@ -8,36 +8,104 @@ export class WebSocketMock {
   private reconnectInterval: NodeJS.Timeout | null = null
   private heartbeatInterval: NodeJS.Timeout | null = null
   private messageSimulationInterval: NodeJS.Timeout | null = null
+  private websocket: WebSocket | null = null
+  private config: WebSocketConfig
 
-  constructor() {}
+  constructor(config: WebSocketConfig = { useRealServer: false, serverUrl: "" }) {
+    this.config = config
+  }
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.emit("connecting")
 
-      setTimeout(
-        () => {
-          if (Math.random() > 0.1) {
-            this.isConnected = true
-            this.reconnectAttempts = 0
-            this.emit("connected")
-            this.startHeartbeat()
-            this.startMessageSimulation()
-            resolve()
-          } else {
-            this.handleConnectionError()
-            reject(new Error("Connection failed"))
-          }
-        },
-        1000 + Math.random() * 2000,
-      )
+      if (this.config.useRealServer) {
+        this.connectToRealServer(resolve, reject)
+      } else {
+        this.connectToMockServer(resolve, reject)
+      }
     })
+  }
+
+  private connectToRealServer(resolve: Function, reject: Function): void {
+    try {
+      this.websocket = new WebSocket(this.config.serverUrl)
+
+      this.websocket.onopen = () => {
+        this.isConnected = true
+        this.reconnectAttempts = 0
+        this.emit("connected")
+        this.startHeartbeat()
+        resolve()
+      }
+
+      this.websocket.onmessage = (event) => {
+        try {
+          const data: RealWebSocketMessage = JSON.parse(event.data)
+          console.log("Received WebSocket message:", data)
+          this.handleRealServerMessage(data)
+        } catch (error) {
+          console.error("Failed to parse WebSocket message:", error)
+        }
+      }
+
+      this.websocket.onclose = () => {
+        this.isConnected = false
+        this.websocket = null
+        this.handleConnectionError()
+      }
+
+      this.websocket.onerror = (error) => {
+        console.error("WebSocket error:", error)
+        reject(new Error("WebSocket connection failed"))
+      }
+    } catch (error) {
+      reject(error)
+    }
+  }
+
+  private handleRealServerMessage(data: RealWebSocketMessage): void {
+    const message: Message = {
+      id: data.id,
+      contactId: data.contactId,
+      content: data.content,
+      timestamp: new Date(data.timestamp),
+      isOwn: data.isOwn,
+      status: data.status,
+    }
+
+    this.emit("message", message)
+  }
+
+  private connectToMockServer(resolve: Function, reject: Function): void {
+    setTimeout(
+      () => {
+        if (Math.random() > 0.1) {
+          this.isConnected = true
+          this.reconnectAttempts = 0
+          this.emit("connected")
+          this.startHeartbeat()
+          this.startMessageSimulation()
+          resolve()
+        } else {
+          this.handleConnectionError()
+          reject(new Error("Connection failed"))
+        }
+      },
+      1000 + Math.random() * 2000,
+    )
   }
 
   disconnect(): void {
     this.isConnected = false
     this.stopHeartbeat()
     this.stopMessageSimulation()
+
+    if (this.websocket) {
+      this.websocket.close()
+      this.websocket = null
+    }
+
     this.emit("disconnected")
   }
 
@@ -46,31 +114,43 @@ export class WebSocketMock {
       return
     }
 
-    setTimeout(
-      () => {
-        if (message.type === "message") {
-          this.emit("message_status", {
-            messageId: message.data.id,
-            status: "delivered",
-          })
+    if (this.config.useRealServer && this.websocket) {
+      this.websocket.send(JSON.stringify(message))
+    } else {
+      setTimeout(
+        () => {
+          if (message.type === "message") {
+            this.emit("message_status", {
+              messageId: message.data.id,
+              status: "delivered",
+            })
 
-          setTimeout(
-            () => {
-              this.emit("message_status", {
-                messageId: message.data.id,
-                status: "read",
-              })
-            },
-            2000 + Math.random() * 3000,
-          )
+            setTimeout(
+              () => {
+                this.emit("message_status", {
+                  messageId: message.data.id,
+                  status: "read",
+                })
+              },
+              2000 + Math.random() * 3000,
+            )
 
-          if (Math.random() > 0.3) {
-            this.simulateIncomingMessage(message.data.contactId)
+            if (Math.random() > 0.3) {
+              this.simulateIncomingMessage(message.data.contactId)
+            }
           }
-        }
-      },
-      500 + Math.random() * 1000,
-    )
+        },
+        500 + Math.random() * 1000,
+      )
+    }
+  }
+
+  setConfig(config: Partial<WebSocketConfig>): void {
+    this.config = { ...this.config, ...config }
+    if (this.isConnected) {
+      this.disconnect()
+      setTimeout(() => this.connect(), 1000)
+    }
   }
 
   on(event: string, callback: Function): void {
@@ -116,7 +196,7 @@ export class WebSocketMock {
   private startHeartbeat(): void {
     this.heartbeatInterval = setInterval(() => {
       if (this.isConnected) {
-        if (Math.random() > 0.98) {
+        if (!this.config.useRealServer && Math.random() > 0.98) {
           this.handleConnectionError()
         }
       }
@@ -131,6 +211,8 @@ export class WebSocketMock {
   }
 
   private startMessageSimulation(): void {
+    if (this.config.useRealServer) return
+
     this.messageSimulationInterval = setInterval(() => {
       if (!this.isConnected) return
 
@@ -160,26 +242,13 @@ export class WebSocketMock {
   }
 
   private simulateIncomingMessage(contactId: string): void {
-    const messages = [
-      "Hey there!",
-      "How's your day going?",
-      "Just wanted to check in.",
-      "Are you free to chat?",
-      "Hope you're doing well!",
-      "What are you up to?",
-      "Long time no see!",
-      "Thanks for earlier!",
-      "Did you see the news?",
-      "Let's catch up soon!",
-    ]
-
     const message: Message = {
-      id: Date.now().toString(),
-      contactId,
-      content: messages[Math.floor(Math.random() * messages.length)],
+      id: crypto.randomUUID(),
+      contactId: crypto.randomUUID(),
+      content: `Random message at ${new Date().toLocaleTimeString()}`,
       timestamp: new Date(),
-      isOwn: false,
-      status: "read",
+      isOwn: Math.random() > 0.5,
+      status: "sent"
     }
 
     this.emit("message", message)
@@ -210,4 +279,4 @@ export class WebSocketMock {
   }
 }
 
-export const websocketService = new WebSocketMock()
+export const websocketService = new WebSocketService()

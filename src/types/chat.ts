@@ -21,3 +21,17 @@ export interface WebSocketMessage {
   data: any
   timestamp: Date
 }
+
+export interface RealWebSocketMessage {
+  id: string
+  contactId: string
+  content: string
+  timestamp: Date
+  isOwn: boolean
+  status: "sent" | "delivered" | "read"
+}
+
+export interface WebSocketConfig {
+  useRealServer: boolean
+  serverUrl: string
+}

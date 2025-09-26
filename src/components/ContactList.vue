@@ -1,6 +1,6 @@
 <template>
   <div class="h-full flex flex-col">
-    <div class="p-4 bg-white border-b border-gray-200">
+    <div class="p-4 bg-white border-b border-gray-200 mt-4">
       <div class="flex items-center justify-between mb-4">
         <h1 class="text-xl font-semibold text-gray-900">Messages</h1>
         <button 

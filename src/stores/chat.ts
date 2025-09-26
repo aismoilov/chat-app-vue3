@@ -218,6 +218,26 @@ export const useChatStore = defineStore("chat", () => {
     connectionStatus.value = status
   }
 
+  const findOrCreateContactByName = (name: string): string => {
+    let contact = contacts.value.find((c) => c.name === name)
+
+    if (!contact) {
+      const newContact: Contact = {
+        id: Date.now().toString(),
+        name,
+        status: "online",
+        avatar: "",
+        lastMessage: "",
+        lastMessageTime: new Date(),
+      }
+      contacts.value.push(newContact)
+      unreadCounts[newContact.id] = 0
+      contact = newContact
+    }
+
+    return contact.id
+  }
+
   return {
     contacts,
     messages,
@@ -236,5 +256,6 @@ export const useChatStore = defineStore("chat", () => {
     updateContactStatus,
     setTyping,
     setConnectionStatus,
+    findOrCreateContactByName,
   }
 })

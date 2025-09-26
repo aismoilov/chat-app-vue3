@@ -28,6 +28,22 @@
     </div>
 
     <div class="hidden lg:block w-80 bg-white border-r border-gray-200">
+      <div class="bg-white rounded-lg shadow-lg p-3 border mt-4 mx-4">
+        <div class="flex items-center gap-2 text-sm">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input 
+              type="checkbox" 
+              v-model="useRealServer"
+              @change="toggleServerMode"
+              class="rounded"
+            />
+            <span class="font-medium">Real WebSocket Server</span>
+          </label>
+        </div>
+        <div v-if="useRealServer" class="mt-2 text-xs text-gray-600">
+          <div>Server: {{ serverUrl }}</div>
+        </div>
+      </div>
       <ContactList 
         :contacts="chatStore.sortedContacts"
         :selected-contact="chatStore.selectedContact"
@@ -84,8 +100,12 @@ import ContactList from './components/ContactList.vue'
 import ChatInterface from './components/ChatInterface.vue'
 import type { Contact, Message, WebSocketMessage } from './types/chat'
 
+const WEBSOCKET_SERVER_URL = import.meta.env.VITE_WEBSOCKET_SERVER_URL;
+
 const chatStore = useChatStore()
 const showMobileContacts = ref(false)
+const serverUrl = ref(WEBSOCKET_SERVER_URL)
+const useRealServer = ref(false)
 
 const connectionStatusClass = computed(() => {
   return chatStore.connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
@@ -94,6 +114,13 @@ const connectionStatusClass = computed(() => {
 const connectionStatusText = computed(() => {
   return chatStore.connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'
 })
+
+const toggleServerMode = async () => {
+  websocketService.setConfig({
+    useRealServer: useRealServer.value,
+    serverUrl: serverUrl.value
+  })
+}
 
 const handleSelectContact = (contact: Contact) => {
   chatStore.selectContact(contact)
@@ -166,6 +193,10 @@ const setupWebSocketListeners = () => {
   websocketService.on('presence_update', (data: { contactId: string, status: Contact['status'] }) => {
     chatStore.updateContactStatus(data.contactId, data.status)
   })
+
+  websocketService.on('find_or_create_contact', (event: { contactId: string | null, name: string }) => {
+    event.contactId = chatStore.findOrCreateContactByName(event.name)
+  })
 }
 
 onMounted(async () => {
@@ -176,7 +207,7 @@ onMounted(async () => {
   try {
     await websocketService.connect()
   } catch (error) {
-    console.error('[v0] Failed to connect to WebSocket:', error)
+    console.error('Failed to connect to WebSocket:', error)
   }
 })
 
